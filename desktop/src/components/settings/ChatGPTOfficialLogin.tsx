@@ -26,7 +26,14 @@ export function ChatGPTOfficialLogin() {
     return () => stopPolling()
   }, [fetchStatus, stopPolling])
 
+  useEffect(() => {
+    if (status?.loggedIn) {
+      setManualAuthorizeUrl(null)
+    }
+  }, [status?.loggedIn])
+
   const handleLogin = async () => {
+    setManualAuthorizeUrl(null)
     try {
       const { authorizeUrl } = await login()
       setManualAuthorizeUrl(authorizeUrl)
@@ -49,6 +56,7 @@ export function ChatGPTOfficialLogin() {
     if (!manualAuthorizeUrl) return
     const copied = await copyTextToClipboard(manualAuthorizeUrl)
     if (copied) {
+      setManualAuthorizeUrl(null)
       useHahaOpenAIOAuthStore.setState({ error: null })
       startPolling()
       return

@@ -90,7 +90,34 @@ describe('ChatGPTOfficialLogin', () => {
     })
 
     expect(copyTextToClipboardMock).toHaveBeenCalledWith(authorizeUrl)
+    expect(useHahaOpenAIOAuthStore.getState().error).toBeNull()
     expect(useHahaOpenAIOAuthStore.getState().isPolling).toBe(true)
-    consoleErrorSpy.mockRestore()
+    expect(screen.queryByText(/Unable to open browser/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copy authorization link' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the authorization link available when copy fails', async () => {
+    const authorizeUrl = 'https://chatgpt.com/oauth/authorize?state=openai-state'
+    statusMock.mockResolvedValue({ loggedIn: false })
+    startMock.mockResolvedValue({ authorizeUrl, state: 'openai-state' })
+    shellOpenMock.mockRejectedValue(new Error('shell unavailable'))
+    copyTextToClipboardMock.mockResolvedValue(false)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(<ChatGPTOfficialLogin />)
+
+    await screen.findByRole('button', { name: 'Sign in with ChatGPT' })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in with ChatGPT' }))
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy authorization link' }))
+    })
+
+    expect(copyTextToClipboardMock).toHaveBeenCalledWith(authorizeUrl)
+    expect(useHahaOpenAIOAuthStore.getState().isPolling).toBe(false)
+    expect(screen.getByText(/Unable to copy authorization link/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy authorization link' })).toBeInTheDocument()
   })
 })
