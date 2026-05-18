@@ -976,6 +976,39 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('refreshes merged slash commands when a live CLI update omits project commands', async () => {
+    const cliCommand = { name: 'builtin-help', description: 'Built-in command' }
+    const projectCommand = { name: 'project-probe', description: 'Project custom command' }
+
+    vi.mocked(sessionsApi.getSlashCommands).mockClear()
+    vi.mocked(sessionsApi.getSlashCommands).mockResolvedValueOnce({
+      commands: [cliCommand, projectCommand],
+    })
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          slashCommands: [projectCommand],
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'slash_commands',
+      data: [cliCommand],
+    })
+
+    await Promise.resolve()
+
+    expect(sessionsApi.getSlashCommands).toHaveBeenCalledTimes(1)
+    expect(sessionsApi.getSlashCommands).toHaveBeenCalledWith(TEST_SESSION_ID)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.slashCommands).toEqual([
+      cliCommand,
+      projectCommand,
+    ])
+  })
+
   it('syncs live TodoWrite tool input into the task store for that session', () => {
     const todos = [{ content: 'Live todo', status: 'in_progress' }]
     useChatStore.setState({

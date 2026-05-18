@@ -445,6 +445,7 @@ function mergeSessionSlashCommands(
     merged.set(command.name, {
       name: command.name,
       description: command.description || '',
+      ...(command.argumentHint ? { argumentHint: command.argumentHint } : {}),
     })
   }
 

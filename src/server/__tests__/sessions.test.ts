@@ -18,6 +18,7 @@ import { sanitizePath } from '../../utils/sessionStoragePortable.js'
 import { clearInstalledPluginsCache } from '../../utils/plugins/installedPluginsManager.js'
 import { clearPluginCache } from '../../utils/plugins/pluginLoader.js'
 import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
+import { updateSessionSlashCommands } from '../ws/handler.js'
 
 // ============================================================================
 // Test helpers
@@ -110,6 +111,19 @@ async function writeSkill(
   await fs.writeFile(
     path.join(skillDir, 'SKILL.md'),
     ['---', `description: ${description}`, '---', '', `# ${skillName}`].join('\n'),
+    'utf-8',
+  )
+}
+
+async function writeLegacySlashCommand(
+  commandsDir: string,
+  commandName: string,
+  description: string,
+): Promise<void> {
+  await fs.mkdir(commandsDir, { recursive: true })
+  await fs.writeFile(
+    path.join(commandsDir, `${commandName}.md`),
+    ['---', `description: ${description}`, 'argument-hint: <topic>', '---', '', `Run ${commandName}.`].join('\n'),
     'utf-8',
   )
 }
@@ -2108,6 +2122,93 @@ describe('Sessions API', () => {
     )
     expect(body.commands).toContainEqual(
       expect.objectContaining({ name: 'project-skill', description: 'Project skill description' }),
+    )
+  })
+
+  it('GET /api/sessions/:id/slash-commands should include legacy custom commands before CLI init', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef'
+    const workDir = path.join(tmpDir, 'workspace', 'app')
+
+    await writeLegacySlashCommand(
+      path.join(tmpDir, 'commands'),
+      'user-probe',
+      'User custom slash command',
+    )
+    await writeLegacySlashCommand(
+      path.join(workDir, '.claude', 'commands'),
+      'project-probe',
+      'Project custom slash command',
+    )
+
+    await writeSessionFile('-tmp-api-test', sessionId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry(workDir),
+    ])
+
+    clearCommandsCache()
+
+    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/slash-commands`)
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as {
+      commands: Array<{ name: string; description: string; argumentHint?: string }>
+    }
+
+    expect(body.commands).toContainEqual(
+      expect.objectContaining({
+        name: 'user-probe',
+        description: 'User custom slash command',
+        argumentHint: '<topic>',
+      }),
+    )
+    expect(body.commands).toContainEqual(
+      expect.objectContaining({
+        name: 'project-probe',
+        description: 'Project custom slash command',
+        argumentHint: '<topic>',
+      }),
+    )
+  })
+
+  it('GET /api/sessions/:id/slash-commands should preserve cached command argument hints when merging custom commands', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeef001'
+    const workDir = path.join(tmpDir, 'workspace', 'app')
+
+    await writeLegacySlashCommand(
+      path.join(workDir, '.claude', 'commands'),
+      'project-probe',
+      'Project custom slash command',
+    )
+
+    await writeSessionFile('-tmp-api-test', sessionId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry(workDir),
+    ])
+
+    updateSessionSlashCommands(
+      sessionId,
+      [{ name: 'builtin-probe', description: 'Cached CLI command', argumentHint: '<value>' }],
+      { notifyClient: false },
+    )
+    clearCommandsCache()
+
+    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/slash-commands`)
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as {
+      commands: Array<{ name: string; description: string; argumentHint?: string }>
+    }
+
+    expect(body.commands).toContainEqual({
+      name: 'builtin-probe',
+      description: 'Cached CLI command',
+      argumentHint: '<value>',
+    })
+    expect(body.commands).toContainEqual(
+      expect.objectContaining({
+        name: 'project-probe',
+        description: 'Project custom slash command',
+      }),
     )
   })
 

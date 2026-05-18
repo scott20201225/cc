@@ -331,6 +331,41 @@ function updateSessionIn(
   return { ...sessions, [sessionId]: { ...session, ...updater(session) } }
 }
 
+type SlashCommandState = PerSessionState['slashCommands'][number]
+
+function normalizeSlashCommand(command: unknown): SlashCommandState | null {
+  if (!command || typeof command !== 'object') return null
+  const candidate = command as { name?: unknown; description?: unknown; argumentHint?: unknown }
+  if (typeof candidate.name !== 'string' || !candidate.name) return null
+  return {
+    name: candidate.name,
+    description: typeof candidate.description === 'string' ? candidate.description : '',
+    ...(typeof candidate.argumentHint === 'string' && candidate.argumentHint
+      ? { argumentHint: candidate.argumentHint }
+      : {}),
+  }
+}
+
+function normalizeSlashCommandList(commands: ReadonlyArray<unknown>): SlashCommandState[] {
+  return commands
+    .map(normalizeSlashCommand)
+    .filter((command): command is SlashCommandState => command !== null)
+}
+
+function mergeSlashCommandUpdates(
+  current: ReadonlyArray<SlashCommandState>,
+  incoming: ReadonlyArray<SlashCommandState>,
+): SlashCommandState[] {
+  const merged = new Map<string, SlashCommandState>()
+  for (const command of current) {
+    if (command.name) merged.set(command.name, command)
+  }
+  for (const command of incoming) {
+    if (command.name) merged.set(command.name, command)
+  }
+  return [...merged.values()]
+}
+
 async function fetchAndMapSessionHistory(sessionId: string) {
   const { messages, taskNotifications } = await sessionsApi.getMessages(sessionId)
   const uiMessages = mapHistoryMessagesToUiMessages(messages)
@@ -992,7 +1027,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         break
       case 'system_notification':
         if (msg.subtype === 'slash_commands' && Array.isArray(msg.data)) {
-          update(() => ({ slashCommands: msg.data as Array<{ name: string; description: string; argumentHint?: string }> }))
+          const incomingCommands = normalizeSlashCommandList(msg.data)
+          update((session) => ({
+            slashCommands: mergeSlashCommandUpdates(session.slashCommands, incomingCommands),
+          }))
+          void sessionsApi.getSlashCommands(sessionId)
+            .then(({ commands }) => {
+              if (!get().sessions[sessionId]) return
+              set((s) => ({
+                sessions: updateSessionIn(s.sessions, sessionId, () => ({
+                  slashCommands: normalizeSlashCommandList(commands),
+                })),
+              }))
+            })
+            .catch(() => {
+              // Keep the last known local + CLI union when the authoritative refresh is unavailable.
+            })
         }
         if (msg.subtype === 'session_cleared') {
           const session = get().sessions[sessionId]
