@@ -405,6 +405,66 @@ describe('MessageList nested tool calls', () => {
     expect(container.textContent).toContain('Agent')
   })
 
+  it('keeps mixed tool groups active while a nested child tool call is unresolved', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'idle',
+          messages: [
+            {
+              id: 'tool-task-update',
+              type: 'tool_use',
+              toolName: 'TaskUpdate',
+              toolUseId: 'task-update-1',
+              input: { tasks: [{ id: '4', status: 'in_progress', content: 'Run page integration' }] },
+              timestamp: 1,
+            },
+            {
+              id: 'tool-bash',
+              type: 'tool_use',
+              toolName: 'Bash',
+              toolUseId: 'bash-1',
+              input: { command: 'bun run dev' },
+              timestamp: 2,
+            },
+            {
+              id: 'result-task-update',
+              type: 'tool_result',
+              toolUseId: 'task-update-1',
+              content: 'updated',
+              isError: false,
+              timestamp: 3,
+            },
+            {
+              id: 'result-bash',
+              type: 'tool_result',
+              toolUseId: 'bash-1',
+              content: 'started',
+              isError: false,
+              timestamp: 4,
+            },
+            {
+              id: 'tool-local-bash',
+              type: 'tool_use',
+              toolName: 'local_bash',
+              toolUseId: 'local-bash-1',
+              input: { description: 'Run page integration checks' },
+              timestamp: 5,
+              parentToolUseId: 'task-update-1',
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const groupSummary = screen.getByText('TaskUpdate (1), ran a command')
+    const groupButton = groupSummary.closest('button')
+    expect(groupButton?.textContent).not.toContain('check_circle')
+    expect(screen.getByText('local_bash')).toBeTruthy()
+  })
+
   it('does not render blank assistant bubbles for whitespace-only text', () => {
     const messages: UIMessage[] = [
       {

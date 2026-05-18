@@ -277,6 +277,68 @@ describe('ActiveSession task polling', () => {
     expect(screen.getByTestId('message-list')).toBeInTheDocument()
   })
 
+  it('keeps the session header active while a background task is still running after the turn completes', () => {
+    const sessionId = 'background-shell-running-session'
+
+    useSessionStore.setState({
+      sessions: [{
+        id: sessionId,
+        title: 'Background Shell Session',
+        createdAt: '2026-05-07T00:00:00.000Z',
+        modifiedAt: new Date().toISOString(),
+        messageCount: 1,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: sessionId,
+      isLoading: false,
+      error: null,
+    })
+    useTabStore.setState({
+      tabs: [{ sessionId, title: 'Background Shell Session', type: 'session', status: 'idle' }],
+      activeTabId: sessionId,
+    })
+    useChatStore.setState({
+      sessions: {
+        [sessionId]: {
+          messages: [{ id: 'msg-1', type: 'assistant_text', content: 'task started', timestamp: 1 }],
+          backgroundAgentTasks: {
+            'bash-task-1': {
+              taskId: 'bash-task-1',
+              toolUseId: 'bash-tool-1',
+              status: 'running',
+              taskType: 'local_bash',
+              description: 'Run page integration checks',
+              startedAt: 1,
+              updatedAt: 2,
+            },
+          },
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ActiveSession />)
+
+    expect(screen.getByText(/session active|会话活跃中/)).toBeInTheDocument()
+    expect(screen.getByTestId('chat-input')).toHaveAttribute('data-variant', 'default')
+  })
+
   it('refreshes CLI tasks repeatedly while a turn is active', async () => {
     vi.useFakeTimers()
 

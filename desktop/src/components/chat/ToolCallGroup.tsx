@@ -63,11 +63,49 @@ function generateSummary(toolCalls: ToolCall[], t: (key: TranslationKey, params?
   return parts.join(', ')
 }
 
-function groupHasErrors(toolCalls: ToolCall[], resultMap: Map<string, ToolResult>): boolean {
+function toolCallHasError(
+  toolCall: ToolCall,
+  resultMap: Map<string, ToolResult>,
+  childToolCallsByParent: Map<string, ToolCall[]>,
+): boolean {
+  const result = resultMap.get(toolCall.toolUseId)
+  if (result?.isError) return true
+
+  return (childToolCallsByParent.get(toolCall.toolUseId) ?? []).some((childToolCall) =>
+    toolCallHasError(childToolCall, resultMap, childToolCallsByParent),
+  )
+}
+
+function groupHasErrors(
+  toolCalls: ToolCall[],
+  resultMap: Map<string, ToolResult>,
+  childToolCallsByParent: Map<string, ToolCall[]>,
+): boolean {
   return toolCalls.some((tc) => {
-    const result = resultMap.get(tc.toolUseId)
-    return result?.isError
+    return toolCallHasError(tc, resultMap, childToolCallsByParent)
   })
+}
+
+function isToolCallResolved(
+  toolCall: ToolCall,
+  resultMap: Map<string, ToolResult>,
+  childToolCallsByParent: Map<string, ToolCall[]>,
+): boolean {
+  if (!resultMap.has(toolCall.toolUseId)) return false
+
+  return (childToolCallsByParent.get(toolCall.toolUseId) ?? []).every((childToolCall) =>
+    isToolCallResolved(childToolCall, resultMap, childToolCallsByParent),
+  )
+}
+
+function hasUnresolvedToolCalls(
+  toolCalls: ToolCall[],
+  resultMap: Map<string, ToolResult>,
+  childToolCallsByParent: Map<string, ToolCall[]>,
+): boolean {
+  return toolCalls.some((toolCall) =>
+    !isToolCallResolved(toolCall, resultMap, childToolCallsByParent),
+  )
 }
 
 export function ToolCallGroup({
@@ -380,15 +418,16 @@ function ToolCallGroupMulti({ toolCalls, resultMap, childToolCallsByParent, isSt
   const [expanded, setExpanded] = useState(false)
   const t = useTranslation()
   const summary = generateSummary(toolCalls, t)
-  const errorPresent = groupHasErrors(toolCalls, resultMap)
-  const allComplete = toolCalls.every((tc) => resultMap.has(tc.toolUseId))
+  const errorPresent = groupHasErrors(toolCalls, resultMap, childToolCallsByParent)
+  const hasUnresolvedTools = hasUnresolvedToolCalls(toolCalls, resultMap, childToolCallsByParent)
+  const isRunning = !!isStreaming || hasUnresolvedTools
   const hasNestedToolCalls = toolCalls.some((tc) => (childToolCallsByParent.get(tc.toolUseId)?.length ?? 0) > 0)
 
   useEffect(() => {
-    if (isStreaming || hasNestedToolCalls) {
+    if (isRunning || hasNestedToolCalls) {
       setExpanded(true)
     }
-  }, [hasNestedToolCalls, isStreaming])
+  }, [hasNestedToolCalls, isRunning])
 
   return (
     <div className="mb-2">
@@ -403,16 +442,13 @@ function ToolCallGroupMulti({ toolCalls, resultMap, childToolCallsByParent, isSt
         <span className="flex-1 truncate text-[12px] text-[var(--color-text-secondary)]">
           {summary}
         </span>
-        {!isStreaming && allComplete && !errorPresent && (
+        {!isRunning && !errorPresent && (
           <span className="material-symbols-outlined text-[14px] text-[var(--color-success)]">check_circle</span>
         )}
-        {!isStreaming && errorPresent && (
+        {!isRunning && errorPresent && (
           <span className="material-symbols-outlined text-[14px] text-[var(--color-error)]">error</span>
         )}
-        {!isStreaming && !allComplete && !errorPresent && (
-          <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">pending</span>
-        )}
-        {isStreaming && (
+        {isRunning && (
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)] animate-pulse-dot" />
         )}
       </button>

@@ -210,8 +210,11 @@ export function ActiveSession() {
   const fetchSessionTasks = useCLITaskStore((s) => s.fetchSessionTasks)
   const trackedTaskSessionId = useCLITaskStore((s) => s.sessionId)
   const hasIncompleteTasks = useCLITaskStore((s) => s.tasks.some((task) => task.status !== 'completed'))
+  const hasRunningTasks = useCLITaskStore((s) => s.tasks.some((task) => task.status === 'in_progress'))
   const chatState = sessionState?.chatState ?? 'idle'
   const tokenUsage = sessionState?.tokenUsage ?? { input_tokens: 0, output_tokens: 0 }
+  const hasRunningBackgroundTasks = Object.values(sessionState?.backgroundAgentTasks ?? {})
+    .some((task) => task.status === 'running')
 
   const session = sessions.find((s) => s.id === activeTabId)
   const memberInfo = useTeamStore((s) => activeTabId ? s.getMemberBySessionId(activeTabId) : null)
@@ -265,7 +268,9 @@ export function ActiveSession() {
   const streamingText = sessionState?.streamingText ?? ''
   const isEmpty = messages.length === 0 && !streamingText && (session?.messageCount ?? 0) === 0
 
-  const isActive = chatState !== 'idle'
+  const isActive = chatState !== 'idle' ||
+    (trackedTaskSessionId === activeTabId && hasRunningTasks) ||
+    hasRunningBackgroundTasks
   const totalTokens = tokenUsage.input_tokens + tokenUsage.output_tokens
 
   const lastUpdated = useMemo(() => {
