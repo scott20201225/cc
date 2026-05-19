@@ -10,6 +10,7 @@ import {
   type DesktopTerminalSettings,
   type DesktopTerminalStartupShell,
   type H5AccessSettings,
+  type NetworkSettings,
   type PermissionMode,
   type EffortLevel,
   type ModelInfo,
@@ -60,6 +61,7 @@ type SettingsStore = {
   desktopTerminal: DesktopTerminalSettings
   webSearch: WebSearchSettings
   updateProxy: UpdateProxySettings
+  network: NetworkSettings
   h5Access: H5AccessSettings
   h5AccessError: string | null
   responseLanguage: string
@@ -83,6 +85,7 @@ type SettingsStore = {
   setDesktopTerminal: (settings: DesktopTerminalSettings) => Promise<void>
   setWebSearch: (settings: WebSearchSettings) => Promise<void>
   setUpdateProxy: (settings: UpdateProxySettings) => Promise<void>
+  setNetwork: (settings: NetworkSettings) => Promise<void>
   enableH5Access: () => Promise<string>
   disableH5Access: () => Promise<void>
   regenerateH5AccessToken: () => Promise<string>
@@ -94,6 +97,10 @@ type SettingsStore = {
   fetchAppMode: () => Promise<void>
   setAppMode: (mode: AppMode, portableDir?: string | null) => Promise<void>
   setUiZoom: (zoom: number) => void
+}
+
+type NetworkSettingsInput = Partial<Omit<NetworkSettings, 'proxy'>> & {
+  proxy?: Partial<NetworkSettings['proxy']>
 }
 
 const DEFAULT_H5_ACCESS_SETTINGS: H5AccessSettings = {
@@ -113,6 +120,14 @@ const DEFAULT_UPDATE_PROXY_SETTINGS: UpdateProxySettings = {
   url: '',
 }
 
+const DEFAULT_NETWORK_SETTINGS: NetworkSettings = {
+  aiRequestTimeoutMs: 120_000,
+  proxy: {
+    mode: 'system',
+    url: '',
+  },
+}
+
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   permissionMode: 'default',
   currentModel: null,
@@ -127,6 +142,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   desktopTerminal: DEFAULT_DESKTOP_TERMINAL_SETTINGS,
   webSearch: { mode: 'auto', tavilyApiKey: '', braveApiKey: '' },
   updateProxy: DEFAULT_UPDATE_PROXY_SETTINGS,
+  network: DEFAULT_NETWORK_SETTINGS,
   h5Access: DEFAULT_H5_ACCESS_SETTINGS,
   h5AccessError: null,
   responseLanguage: '',
@@ -175,6 +191,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         desktopTerminal: normalizeDesktopTerminalSettings(userSettings.desktopTerminal),
         webSearch: normalizeWebSearchSettings(userSettings.webSearch),
         updateProxy: normalizeUpdateProxySettings(userSettings.updateProxy),
+        network: normalizeNetworkSettings(userSettings.network),
         h5Access: h5AccessResult.settings,
         h5AccessError: h5AccessResult.error,
         responseLanguage: typeof userSettings.language === 'string' ? userSettings.language : '',
@@ -313,6 +330,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }
   },
 
+  setNetwork: async (settings) => {
+    const prev = get().network
+    const next = normalizeNetworkSettings(settings)
+    set({ network: next })
+    try {
+      await settingsApi.updateUser({ network: next })
+    } catch (error) {
+      set({ network: prev })
+      throw error
+    }
+  },
+
   enableH5Access: async () => {
     set({ h5AccessError: null })
     try {
@@ -438,6 +467,23 @@ function normalizeUpdateProxySettings(
   return {
     mode,
     url: typeof settings?.url === 'string' ? settings.url.trim() : '',
+  }
+}
+
+function normalizeNetworkSettings(
+  settings: NetworkSettingsInput | undefined,
+): NetworkSettings {
+  const timeout = typeof settings?.aiRequestTimeoutMs === 'number' && Number.isFinite(settings.aiRequestTimeoutMs)
+    ? Math.min(Math.max(Math.round(settings.aiRequestTimeoutMs), 5_000), 600_000)
+    : DEFAULT_NETWORK_SETTINGS.aiRequestTimeoutMs
+  const proxyMode = settings?.proxy?.mode === 'manual' ? 'manual' : 'system'
+
+  return {
+    aiRequestTimeoutMs: timeout,
+    proxy: {
+      mode: proxyMode,
+      url: typeof settings?.proxy?.url === 'string' ? settings.proxy.url.trim() : '',
+    },
   }
 }
 

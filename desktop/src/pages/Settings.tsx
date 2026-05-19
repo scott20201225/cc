@@ -9,7 +9,7 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { Input } from '../components/shared/Input'
 import { Button } from '../components/shared/Button'
 import { Dropdown } from '../components/shared/Dropdown'
-import type { PermissionMode, EffortLevel, ThemeMode, UpdateProxyMode, WebSearchMode, AppMode } from '../types/settings'
+import type { PermissionMode, EffortLevel, ThemeMode, UpdateProxyMode, NetworkProxyMode, WebSearchMode, AppMode } from '../types/settings'
 import type { Locale } from '../i18n'
 import type { SavedProvider, UpdateProviderInput, ProviderTestResult, ModelMapping, ApiFormat, ProviderAuthStrategy } from '../types/provider'
 import type { ProviderPreset } from '../types/providerPreset'
@@ -1395,6 +1395,8 @@ function GeneralSettings() {
     setDesktopNotificationsEnabled,
     webSearch,
     setWebSearch,
+    network,
+    setNetwork,
     responseLanguage,
     setResponseLanguage,
     appMode,
@@ -1406,6 +1408,9 @@ function GeneralSettings() {
   } = useSettingsStore()
   const t = useTranslation()
   const [webSearchDraft, setWebSearchDraft] = useState(webSearch)
+  const [networkDraft, setNetworkDraft] = useState(network)
+  const [networkSaveError, setNetworkSaveError] = useState<string | null>(null)
+  const [isSavingNetwork, setIsSavingNetwork] = useState(false)
   const [notificationPermission, setNotificationPermission] = useState<DesktopNotificationPermission>('default')
   const [notificationActionRunning, setNotificationActionRunning] = useState(false)
   const [modeSwitchConfirmOpen, setModeSwitchConfirmOpen] = useState(false)
@@ -1427,6 +1432,11 @@ function GeneralSettings() {
   useEffect(() => {
     setWebSearchDraft(webSearch)
   }, [webSearch])
+
+  useEffect(() => {
+    setNetworkDraft(network)
+    setNetworkSaveError(null)
+  }, [network])
 
   useEffect(() => {
     if (!isUiZoomDragging) {
@@ -1506,6 +1516,19 @@ function GeneralSettings() {
     { value: 'disabled', label: t('settings.general.webSearch.mode.disabled') },
   ]
 
+  const NETWORK_PROXY_MODES: Array<{ value: NetworkProxyMode; label: string; description: string }> = [
+    {
+      value: 'system',
+      label: t('settings.general.networkProxyModeSystem'),
+      description: t('settings.general.networkProxyModeSystemDescription'),
+    },
+    {
+      value: 'manual',
+      label: t('settings.general.networkProxyModeManual'),
+      description: t('settings.general.networkProxyModeManualDescription'),
+    },
+  ]
+
   const notificationStatusLabel: Record<DesktopNotificationPermission, string> = {
     granted: t('settings.general.notificationsStatusGranted'),
     denied: t('settings.general.notificationsStatusDenied'),
@@ -1555,6 +1578,42 @@ function GeneralSettings() {
       }
     } finally {
       setNotificationActionRunning(false)
+    }
+  }
+
+  const networkProxyUrl = networkDraft.proxy.url.trim()
+  const networkProxyError =
+    networkDraft.proxy.mode === 'manual' && !networkProxyUrl
+      ? t('settings.general.networkProxyUrlRequired')
+      : networkDraft.proxy.mode === 'manual' && !isValidHttpProxyUrl(networkProxyUrl)
+        ? t('settings.general.networkProxyUrlInvalid')
+        : null
+  const timeoutSeconds = Math.round(networkDraft.aiRequestTimeoutMs / 1000)
+  const networkDirty =
+    networkDraft.aiRequestTimeoutMs !== network.aiRequestTimeoutMs ||
+    networkDraft.proxy.mode !== network.proxy.mode ||
+    networkDraft.proxy.url.trim() !== network.proxy.url.trim()
+
+  const saveNetworkSettings = async () => {
+    if (networkProxyError) {
+      setNetworkSaveError(networkProxyError)
+      return
+    }
+
+    setIsSavingNetwork(true)
+    setNetworkSaveError(null)
+    try {
+      await setNetwork({
+        aiRequestTimeoutMs: networkDraft.aiRequestTimeoutMs,
+        proxy: {
+          mode: networkDraft.proxy.mode,
+          url: networkProxyUrl,
+        },
+      })
+    } catch (error) {
+      setNetworkSaveError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setIsSavingNetwork(false)
     }
   }
 
@@ -1890,6 +1949,115 @@ function GeneralSettings() {
       </div>
 
       {uiZoomSection}
+
+      <div className="mt-8">
+        <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.networkTitle')}</h2>
+        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.networkDescription')}</p>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-4">
+          <div className="grid grid-cols-2 gap-2">
+            {NETWORK_PROXY_MODES.map((mode) => (
+              <button
+                key={mode.value}
+                type="button"
+                onClick={() => {
+                  setNetworkDraft((current) => ({
+                    ...current,
+                    proxy: { ...current.proxy, mode: mode.value },
+                  }))
+                  setNetworkSaveError(null)
+                }}
+                aria-pressed={networkDraft.proxy.mode === mode.value}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  networkDraft.proxy.mode === mode.value
+                    ? 'border-[var(--color-brand)] bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
+                    : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+                }`}
+              >
+                <div className="text-xs font-semibold">{mode.label}</div>
+                <div className="mt-1 text-[11px] leading-4 text-[var(--color-text-tertiary)]">
+                  {mode.description}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {networkDraft.proxy.mode === 'manual' && (
+            <div className="mt-4">
+              <Input
+                id="network-proxy-url"
+                label={t('settings.general.networkProxyUrl')}
+                value={networkDraft.proxy.url}
+                placeholder="http://127.0.0.1:7890"
+                autoComplete="off"
+                onChange={(event) => {
+                  setNetworkDraft((current) => ({
+                    ...current,
+                    proxy: { ...current.proxy, url: event.target.value },
+                  }))
+                  setNetworkSaveError(null)
+                }}
+              />
+              <p className={`mt-1 text-[11px] leading-4 ${networkProxyError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-tertiary)]'}`}>
+                {networkProxyError ?? t('settings.general.networkProxyUrlHint')}
+              </p>
+            </div>
+          )}
+
+          <div className="mt-4">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label htmlFor="network-timeout-seconds" className="text-sm font-medium text-[var(--color-text-primary)]">
+                {t('settings.general.networkTimeout')}
+              </label>
+              <span className="rounded-md bg-[var(--color-surface)] px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)]">
+                {t('settings.general.networkTimeoutValue', { seconds: String(timeoutSeconds) })}
+              </span>
+            </div>
+            <input
+              id="network-timeout-seconds"
+              type="range"
+              min={5}
+              max={600}
+              step={5}
+              value={timeoutSeconds}
+              aria-label={t('settings.general.networkTimeout')}
+              onChange={(event) => {
+                const seconds = Number(event.currentTarget.value)
+                setNetworkDraft((current) => ({
+                  ...current,
+                  aiRequestTimeoutMs: seconds * 1000,
+                }))
+                setNetworkSaveError(null)
+              }}
+              className="settings-zoom-range w-full"
+            />
+            <p className="mt-2 text-xs leading-5 text-[var(--color-text-tertiary)]">
+              {t('settings.general.networkTimeoutHint')}
+            </p>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <p className="min-w-0 text-[11px] leading-4 text-[var(--color-text-tertiary)]">
+              {t('settings.general.networkScopeHint')}
+            </p>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="min-w-[72px] px-4 whitespace-nowrap"
+              disabled={!networkDirty || !!networkProxyError || isSavingNetwork}
+              loading={isSavingNetwork}
+              onClick={() => void saveNetworkSettings()}
+            >
+              {t('settings.general.networkSave')}
+            </Button>
+          </div>
+
+          {networkSaveError && (
+            <p className="mt-2 text-[11px] leading-4 text-[var(--color-error)]">
+              {networkSaveError}
+            </p>
+          )}
+        </div>
+      </div>
 
       <div className="mt-8">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.webFetchPreflightTitle')}</h2>
@@ -3072,7 +3240,7 @@ const SOCIAL_LINKS = [
   { name: 'Xiaohongshu', icon: '/icons/xiaohongshu.svg', url: 'https://www.xiaohongshu.com/user/profile/5f58bd990000000001003753', label: '程序员阿江-Relakkes' },
 ] as const
 
-function isValidUpdateProxyUrl(value: string) {
+function isValidHttpProxyUrl(value: string) {
   try {
     const url = new URL(value)
     return url.protocol === 'http:' || url.protocol === 'https:'
@@ -3157,7 +3325,7 @@ function AboutSettings() {
   const manualProxyError =
     updateProxyDraft.mode === 'manual' && !manualProxyUrl
       ? t('update.proxyUrlRequired')
-      : updateProxyDraft.mode === 'manual' && !isValidUpdateProxyUrl(manualProxyUrl)
+      : updateProxyDraft.mode === 'manual' && !isValidHttpProxyUrl(manualProxyUrl)
         ? t('update.proxyUrlInvalid')
         : null
   const updateProxyDirty =

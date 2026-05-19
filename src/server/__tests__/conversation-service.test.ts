@@ -202,6 +202,29 @@ describe('ConversationService', () => {
     expect(env.ANTHROPIC_MODEL).toBeUndefined()
   })
 
+  test('buildChildEnv injects General network timeout and manual proxy for CLI requests', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, 'settings.json'),
+      JSON.stringify({
+        network: {
+          aiRequestTimeoutMs: 180_000,
+          proxy: {
+            mode: 'manual',
+            url: ' http://127.0.0.1:7890 ',
+          },
+        },
+      }),
+      'utf-8',
+    )
+
+    const service = new ConversationService() as any
+    const env = (await service.buildChildEnv('/tmp')) as Record<string, string>
+
+    expect(env.API_TIMEOUT_MS).toBe('180000')
+    expect(env.HTTP_PROXY).toBe('http://127.0.0.1:7890')
+    expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:7890')
+  })
+
   test('buildChildEnv injects CLAUDE_CODE_OAUTH_TOKEN when official mode + haha oauth token exists', async () => {
     const ccHahaDir = path.join(tmpDir, 'cc-haha')
     await fs.mkdir(ccHahaDir, { recursive: true })
@@ -336,6 +359,44 @@ describe('ConversationService', () => {
     expect(env.ANTHROPIC_API_KEY).toBe('')
     expect(env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
     expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES).toBe('none')
+  })
+
+  test('buildChildEnv lets General network timeout override provider preset timeouts', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, 'settings.json'),
+      JSON.stringify({
+        network: {
+          aiRequestTimeoutMs: 180_000,
+          proxy: { mode: 'system', url: '' },
+        },
+      }),
+      'utf-8',
+    )
+
+    const providerService = new ProviderService()
+    const provider = await providerService.addProvider({
+      presetId: 'shengsuanyun',
+      name: 'Shengsuanyun',
+      apiKey: 'provider-key',
+      baseUrl: 'https://router.shengsuanyun.com/api',
+      apiFormat: 'anthropic',
+      models: {
+        main: 'anthropic/claude-sonnet-4.6',
+        haiku: 'anthropic/claude-haiku-4.5:thinking',
+        sonnet: 'anthropic/claude-sonnet-4.6',
+        opus: 'anthropic/claude-opus-4.7',
+      },
+    })
+
+    const service = new ConversationService() as any
+    const env = (await service.buildChildEnv('/tmp', undefined, {
+      providerId: provider.id,
+      model: 'anthropic/claude-sonnet-4.6',
+    })) as Record<string, string>
+
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://router.shengsuanyun.com/api')
+    expect(env.API_TIMEOUT_MS).toBe('180000')
+    expect(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1')
   })
 
   test('buildChildEnv can force official auth even when a custom default provider exists', async () => {

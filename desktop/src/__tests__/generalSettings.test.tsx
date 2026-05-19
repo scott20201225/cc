@@ -165,6 +165,10 @@ describe('Settings > General tab', () => {
       responseLanguage: '',
       uiZoom: 1,
       webSearch: { mode: 'auto', tavilyApiKey: '', braveApiKey: '' },
+      network: {
+        aiRequestTimeoutMs: 120_000,
+        proxy: { mode: 'system', url: '' },
+      },
       h5Access: {
         enabled: false,
         tokenPreview: null,
@@ -192,6 +196,9 @@ describe('Settings > General tab', () => {
       }),
       setWebSearch: vi.fn().mockImplementation(async (webSearch) => {
         useSettingsStore.setState({ webSearch })
+      }),
+      setNetwork: vi.fn().mockImplementation(async (network) => {
+        useSettingsStore.setState({ network })
       }),
       appMode: {
         mode: 'default',
@@ -308,10 +315,45 @@ describe('Settings > General tab', () => {
 
     const notificationsHeading = screen.getByRole('heading', { name: 'System Notifications' })
     const uiZoomHeading = screen.getByRole('heading', { name: 'UI Zoom' })
+    const networkHeading = screen.getByRole('heading', { name: 'Network' })
     const webFetchHeading = screen.getByRole('heading', { name: 'WebFetch Preflight' })
 
     expect((notificationsHeading.compareDocumentPosition(uiZoomHeading) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
-    expect((uiZoomHeading.compareDocumentPosition(webFetchHeading) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect((uiZoomHeading.compareDocumentPosition(networkHeading) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect((networkHeading.compareDocumentPosition(webFetchHeading) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+  })
+
+  it('saves provider network timeout and manual proxy from General settings', async () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+    expect(screen.getByRole('button', { name: /System proxy/i })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: /Manual proxy/i }))
+    const proxyInput = screen.getByLabelText('Proxy URL')
+    const saveButton = screen.getAllByRole('button', { name: 'Save' })[0]!
+
+    expect(screen.getByText('Enter a proxy URL.')).toBeInTheDocument()
+    expect(saveButton).toBeDisabled()
+
+    fireEvent.change(proxyInput, { target: { value: 'socks5://127.0.0.1:7890' } })
+    expect(screen.getByText('Enter an HTTP or HTTPS proxy URL.')).toBeInTheDocument()
+    expect(saveButton).toBeDisabled()
+
+    fireEvent.change(proxyInput, { target: { value: '  http://127.0.0.1:7890  ' } })
+    fireEvent.change(screen.getByLabelText('AI request timeout'), { target: { value: '180' } })
+
+    await act(async () => {
+      fireEvent.click(saveButton)
+    })
+
+    expect(useSettingsStore.getState().setNetwork).toHaveBeenCalledWith({
+      aiRequestTimeoutMs: 180_000,
+      proxy: {
+        mode: 'manual',
+        url: 'http://127.0.0.1:7890',
+      },
+    })
   })
 
   it('keeps data storage at the bottom of General settings', () => {
@@ -839,7 +881,8 @@ describe('Settings > General tab', () => {
     fireEvent.change(screen.getByLabelText('Tavily API key'), {
       target: { value: 'tvly-test-key' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' })
+    fireEvent.click(saveButtons[saveButtons.length - 1]!)
 
     expect(useSettingsStore.getState().setWebSearch).toHaveBeenCalledWith({
       mode: 'tavily',

@@ -25,6 +25,18 @@ export type UpdateProxySettings = {
   url: string
 }
 
+export type NetworkProxyMode = 'system' | 'manual'
+
+export type NetworkProxySettings = {
+  mode: NetworkProxyMode
+  url: string
+}
+
+export type NetworkSettings = {
+  aiRequestTimeoutMs: number
+  proxy: NetworkProxySettings
+}
+
 export type H5AccessSettings = {
   enabled: boolean
   tokenPreview: string | null
@@ -62,6 +74,10 @@ export type UserSettings = {
   desktopNotificationsEnabled?: boolean
   webSearch?: WebSearchSettings
   updateProxy?: Partial<UpdateProxySettings>
+  network?: {
+    aiRequestTimeoutMs?: number
+    proxy?: Partial<NetworkProxySettings>
+  }
   language?: string
   desktopTerminal?: Partial<DesktopTerminalSettings>
   [key: string]: unknown

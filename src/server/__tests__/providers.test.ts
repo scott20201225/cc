@@ -853,6 +853,52 @@ describe('ProviderService', () => {
         globalThis.fetch = originalFetch
       }
     })
+
+    test('should use configured network timeout for provider tests', async () => {
+      await fs.writeFile(
+        path.join(tmpDir, 'settings.json'),
+        JSON.stringify({
+          network: {
+            aiRequestTimeoutMs: 180_000,
+            proxy: { mode: 'system', url: '' },
+          },
+        }),
+        'utf-8',
+      )
+      const originalFetch = globalThis.fetch
+      const originalTimeout = AbortSignal.timeout
+      const timeoutCalls: number[] = []
+      globalThis.fetch = mock(async (_url: string | URL | Request, _init?: RequestInit) => {
+        return new Response(JSON.stringify({
+          type: 'message',
+          model: 'model-main',
+          content: [],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }) as typeof fetch
+      AbortSignal.timeout = ((ms: number) => {
+        timeoutCalls.push(ms)
+        return originalTimeout(ms)
+      }) as typeof AbortSignal.timeout
+
+      try {
+        const svc = new ProviderService()
+        await svc.testProviderConfig({
+          baseUrl: 'https://api.example.com/anthropic',
+          apiKey: 'sk-api',
+          modelId: 'model-main',
+          authStrategy: 'api_key',
+          apiFormat: 'anthropic',
+        })
+
+        expect(timeoutCalls).toEqual([180_000])
+      } finally {
+        AbortSignal.timeout = originalTimeout
+        globalThis.fetch = originalFetch
+      }
+    })
   })
 })
 

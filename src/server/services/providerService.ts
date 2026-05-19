@@ -23,6 +23,12 @@ import {
   CURRENT_PROVIDER_INDEX_SCHEMA_VERSION,
   ensurePersistentStorageUpgraded,
 } from './persistentStorageMigrations.js'
+import { getProxyFetchOptions } from '../../utils/proxy.js'
+import {
+  getManualNetworkProxyUrl,
+  loadNetworkSettings,
+  type NetworkSettings,
+} from './networkSettings.js'
 import type {
   SavedProvider,
   ProvidersIndex,
@@ -567,10 +573,11 @@ export class ProviderService {
     const format: ApiFormat = input.apiFormat ?? 'anthropic'
     const authStrategy = input.authStrategy ?? 'api_key'
     const base = input.baseUrl.replace(/\/+$/, '')
+    const networkSettings = await loadNetworkSettings()
 
     // ── Step 1: Basic connectivity ───────────────────────────
     // Directly call the upstream API to verify URL, key, and model.
-    const step1 = await this.testConnectivity(base, input.apiKey, input.modelId, format, authStrategy)
+    const step1 = await this.testConnectivity(base, input.apiKey, input.modelId, format, authStrategy, networkSettings)
 
     // If connectivity failed, no point running step 2
     if (!step1.success) {
@@ -584,7 +591,7 @@ export class ProviderService {
 
     // ── Step 2: Full proxy pipeline ──────────────────────────
     // Anthropic request → transform → upstream → transform back → validate
-    const step2 = await this.testProxyPipeline(base, input.apiKey, input.modelId, format)
+    const step2 = await this.testProxyPipeline(base, input.apiKey, input.modelId, format, networkSettings)
 
     return { connectivity: step1, proxy: step2 }
   }
@@ -596,15 +603,18 @@ export class ProviderService {
     modelId: string,
     format: ApiFormat,
     authStrategy: ProviderAuthStrategy,
+    networkSettings: NetworkSettings,
   ): Promise<ProviderTestStepResult> {
     const start = Date.now()
     try {
       const { url, headers, body } = buildDirectTestRequest(base, apiKey, modelId, format, authStrategy)
+      const proxyOptions = getProxyFetchOptions({ proxyUrl: getManualNetworkProxyUrl(networkSettings) })
       const response = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(networkSettings.aiRequestTimeoutMs),
+        ...proxyOptions,
       })
 
       const latencyMs = Date.now() - start
@@ -628,7 +638,7 @@ export class ProviderService {
     } catch (err: unknown) {
       const latencyMs = Date.now() - start
       if (err instanceof DOMException && err.name === 'TimeoutError') {
-        return { success: false, latencyMs, error: 'Request timed out (30s)', modelUsed: modelId }
+        return { success: false, latencyMs, error: `Request timed out (${Math.round(networkSettings.aiRequestTimeoutMs / 1000)}s)`, modelUsed: modelId }
       }
       return { success: false, latencyMs, error: err instanceof Error ? err.message : String(err), modelUsed: modelId }
     }
@@ -640,6 +650,7 @@ export class ProviderService {
     apiKey: string,
     modelId: string,
     format: 'openai_chat' | 'openai_responses',
+    networkSettings: NetworkSettings,
   ): Promise<ProviderTestStepResult> {
     const start = Date.now()
     try {
@@ -660,13 +671,15 @@ export class ProviderService {
         transformedBody = anthropicToOpenaiResponses(anthropicReq)
         upstreamUrl = `${base}/v1/responses`
       }
+      const proxyOptions = getProxyFetchOptions({ proxyUrl: getManualNetworkProxyUrl(networkSettings) })
 
       // Call upstream with transformed request
       const response = await fetch(upstreamUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify(transformedBody),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(networkSettings.aiRequestTimeoutMs),
+        ...proxyOptions,
       })
 
       if (!response.ok) {
@@ -694,7 +707,7 @@ export class ProviderService {
     } catch (err: unknown) {
       const latencyMs = Date.now() - start
       if (err instanceof DOMException && err.name === 'TimeoutError') {
-        return { success: false, latencyMs, error: 'Proxy pipeline timed out (30s)', modelUsed: modelId }
+        return { success: false, latencyMs, error: `Proxy pipeline timed out (${Math.round(networkSettings.aiRequestTimeoutMs / 1000)}s)`, modelUsed: modelId }
       }
       return { success: false, latencyMs, error: err instanceof Error ? err.message : String(err), modelUsed: modelId }
     }
