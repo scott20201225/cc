@@ -13,6 +13,7 @@ import {
   type WorkspaceChatReference,
 } from '../../stores/workspaceChatContextStore'
 import { sessionsApi, type SessionGitInfo } from '../../api/sessions'
+import { agentsApi } from '../../api/agents'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
 import { ModelSelector } from '../controls/ModelSelector'
 import type { AttachmentRef } from '../../types/chat'
@@ -24,6 +25,8 @@ import { FileSearchMenu, type FileSearchMenuHandle } from './FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from './LocalSlashCommandPanel'
 import { ContextUsageIndicator } from './ContextUsageIndicator'
 import {
+  appendAgentSlashCommands,
+  buildAgentSlashCommands,
   getLocalizedFallbackCommands,
   filterSlashCommands,
   findSlashTrigger,
@@ -94,6 +97,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   const [atCursorPos, setAtCursorPos] = useState(-1)
   const [slashFilter, setSlashFilter] = useState('')
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+  const [agentSlashCommands, setAgentSlashCommands] = useState<ReturnType<typeof buildAgentSlashCommands>>([])
   const [launchWorkDir, setLaunchWorkDir] = useState('')
   const [launchBranch, setLaunchBranch] = useState<string | null>(null)
   const [launchUseWorktree, setLaunchUseWorktree] = useState(false)
@@ -336,6 +340,27 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   }, [isMemberSession, activeTabId])
 
   useEffect(() => {
+    if (isMemberSession) {
+      setAgentSlashCommands([])
+      return
+    }
+
+    let cancelled = false
+    agentsApi.list(resolvedWorkDir)
+      .then(({ activeAgents }) => {
+        if (cancelled) return
+        setAgentSlashCommands(buildAgentSlashCommands(activeAgents))
+      })
+      .catch(() => {
+        if (!cancelled) setAgentSlashCommands([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isMemberSession, resolvedWorkDir])
+
+  useEffect(() => {
     if (!showLaunchControls) return
     const nextWorkDir = activeSession?.workDir || gitInfo?.workDir || ''
     setLaunchWorkDir((current) => {
@@ -415,8 +440,11 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   }, [fileSearchOpen])
 
   const allSlashCommands = useMemo(
-    () => mergeSlashCommands(slashCommands, getLocalizedFallbackCommands(t)),
-    [slashCommands, t],
+    () => appendAgentSlashCommands(
+      mergeSlashCommands(slashCommands, getLocalizedFallbackCommands(t)),
+      agentSlashCommands,
+    ),
+    [agentSlashCommands, slashCommands, t],
   )
 
   const filteredCommands = useMemo(() => {

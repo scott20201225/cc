@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getMessages: vi.fn(),
   getSlashCommands: vi.fn(),
   listSkills: vi.fn(),
+  listAgents: vi.fn(),
   search: vi.fn(),
   browse: vi.fn(),
   getTasksForList: vi.fn(),
@@ -38,6 +39,12 @@ vi.mock('../api/sessions', () => ({
 vi.mock('../api/skills', () => ({
   skillsApi: {
     list: mocks.listSkills,
+  },
+}))
+
+vi.mock('../api/agents', () => ({
+  agentsApi: {
+    list: mocks.listAgents,
   },
 }))
 
@@ -200,6 +207,7 @@ describe('EmptySession', () => {
     mocks.getMessages.mockResolvedValue({ messages: [] })
     mocks.getSlashCommands.mockResolvedValue({ commands: [] })
     mocks.listSkills.mockResolvedValue({ skills: [] })
+    mocks.listAgents.mockResolvedValue({ activeAgents: [], allAgents: [] })
     mocks.search.mockResolvedValue({
       currentPath: '/workspace/project',
       parentPath: null,
@@ -310,6 +318,37 @@ describe('EmptySession', () => {
         .filter((button) => button.textContent?.startsWith('/'))
       expect(commandButtons[0]).toHaveTextContent('/superpowers:brainstorming')
     })
+  })
+
+  it('offers active agents as slash entries that insert /agent with the selected type', async () => {
+    mocks.listAgents.mockResolvedValue({
+      activeAgents: [
+        {
+          agentType: 'debugger',
+          description: 'Debug failures',
+          modelDisplay: 'OPUS',
+          source: 'userSettings',
+          isActive: true,
+        },
+      ],
+      allAgents: [],
+    })
+
+    render(<EmptySession />)
+
+    await waitFor(() => {
+      expect(mocks.listAgents).toHaveBeenCalledWith(undefined)
+    })
+
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(input, {
+      target: { value: '/debug', selectionStart: 6 },
+    })
+
+    const agentOption = await screen.findByText('/agent debugger')
+    fireEvent.click(agentOption)
+
+    expect(input).toHaveValue('/agent debugger ')
   })
 
   it('integrates repository launch controls into the desktop composer panel', async () => {

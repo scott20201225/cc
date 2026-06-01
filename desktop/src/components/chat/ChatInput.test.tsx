@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getMessages: vi.fn(),
   getGitInfo: vi.fn(),
   getSlashCommands: vi.fn(),
+  listAgents: vi.fn(),
   getRepositoryContext: vi.fn(),
   getRecentProjects: vi.fn(),
   search: vi.fn(),
@@ -34,6 +35,12 @@ vi.mock('../../api/sessions', () => ({
     getSlashCommands: mocks.getSlashCommands,
     getRepositoryContext: mocks.getRepositoryContext,
     getRecentProjects: mocks.getRecentProjects,
+  },
+}))
+
+vi.mock('../../api/agents', () => ({
+  agentsApi: {
+    list: mocks.listAgents,
   },
 }))
 
@@ -185,6 +192,7 @@ describe('ChatInput file mentions', () => {
     mocks.list.mockResolvedValue({ sessions: [], total: 0 })
     mocks.getMessages.mockResolvedValue({ messages: [] })
     mocks.getSlashCommands.mockResolvedValue({ commands: [] })
+    mocks.listAgents.mockResolvedValue({ activeAgents: [], allAgents: [] })
   })
 
   it('keeps unsent composer drafts isolated when switching between session tabs', async () => {
@@ -1055,5 +1063,36 @@ describe('ChatInput file mentions', () => {
         .filter((button) => button.textContent?.startsWith('/'))
       expect(commandButtons[0]).toHaveTextContent('/superpowers:brainstorming')
     })
+  })
+
+  it('offers active agents as slash entries that insert /agent with the selected type', async () => {
+    mocks.listAgents.mockResolvedValue({
+      activeAgents: [
+        {
+          agentType: 'debugger',
+          description: 'Debug failures',
+          modelDisplay: 'OPUS',
+          source: 'userSettings',
+          isActive: true,
+        },
+      ],
+      allAgents: [],
+    })
+
+    render(<ChatInput />)
+
+    await waitFor(() => {
+      expect(mocks.listAgents).toHaveBeenCalledWith('/repo')
+    })
+
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(input, {
+      target: { value: '/debug', selectionStart: 6 },
+    })
+
+    const agentOption = await screen.findByText('/agent debugger')
+    fireEvent.click(agentOption)
+
+    expect(input).toHaveValue('/agent debugger ')
   })
 })

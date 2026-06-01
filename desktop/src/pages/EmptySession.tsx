@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
+import { agentsApi } from '../api/agents'
 import { skillsApi } from '../api/skills'
 import { useTranslation } from '../i18n'
 import { useSessionStore } from '../stores/sessionStore'
@@ -27,6 +28,8 @@ import {
 import { useComposerFileDrop } from '../components/chat/useComposerFileDrop'
 import { shouldSubmitOnEnter } from '../components/chat/sendShortcut'
 import {
+  appendAgentSlashCommands,
+  buildAgentSlashCommands,
   getLocalizedFallbackCommands,
   filterSlashCommands,
   findSlashToken,
@@ -97,6 +100,7 @@ export function EmptySession() {
   const [slashFilter, setSlashFilter] = useState('')
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [slashCommands, setSlashCommands] = useState<SlashCommandOption[]>([])
+  const [agentSlashCommands, setAgentSlashCommands] = useState<SlashCommandOption[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -188,7 +192,9 @@ export function EmptySession() {
   useEffect(() => {
     let cancelled = false
 
-    skillsApi.list(workDir || undefined)
+    const cwd = workDir || undefined
+
+    skillsApi.list(cwd)
       .then(({ skills }) => {
         if (cancelled) return
         setSlashCommands(
@@ -211,9 +217,32 @@ export function EmptySession() {
     }
   }, [workDir, lastPluginReloadSummary])
 
+  useEffect(() => {
+    let cancelled = false
+    const cwd = workDir || undefined
+
+    agentsApi.list(cwd)
+      .then(({ activeAgents }) => {
+        if (cancelled) return
+        setAgentSlashCommands(buildAgentSlashCommands(activeAgents))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAgentSlashCommands([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [workDir, lastPluginReloadSummary])
+
   const allSlashCommands = useMemo(
-    () => mergeSlashCommands(slashCommands, getLocalizedFallbackCommands(t)),
-    [slashCommands, t],
+    () => appendAgentSlashCommands(
+      mergeSlashCommands(slashCommands, getLocalizedFallbackCommands(t)),
+      agentSlashCommands,
+    ),
+    [agentSlashCommands, slashCommands, t],
   )
 
   const handleWorkDirChange = (newWorkDir: string) => {
