@@ -394,6 +394,45 @@ describe('WebSocket goal command events', () => {
       content: 'late unrelated output',
     })).toBe(false)
   })
+
+  it('allows current /agent task events through the pre-turn mute gate', () => {
+    const shouldForward = createCurrentTurnLocalCommandForwarder(
+      parseSlashCommand('/agent Explore inspect recent changes'),
+    )
+
+    expect(shouldForward({
+      type: 'system',
+      subtype: 'task_started',
+      task_type: 'slash_agent',
+      task_id: 'slash-agent-1',
+      description: 'Agent Explore',
+    })).toBe(true)
+    expect(shouldForward({
+      type: 'system',
+      subtype: 'task_progress',
+      task_type: 'slash_agent',
+      task_id: 'slash-agent-1',
+      summary: 'Using Read',
+    })).toBe(true)
+    expect(shouldForward({
+      type: 'system',
+      subtype: 'task_notification',
+      task_type: 'slash_agent',
+      task_id: 'slash-agent-1',
+      status: 'completed',
+    })).toBe(true)
+
+    const unrelatedCommandForwarder = createCurrentTurnLocalCommandForwarder(
+      parseSlashCommand('/goal ship the smoke test'),
+    )
+    expect(unrelatedCommandForwarder({
+      type: 'system',
+      subtype: 'task_started',
+      task_type: 'slash_agent',
+      task_id: 'slash-agent-1',
+      description: 'Agent Explore',
+    })).toBe(false)
+  })
 })
 
 describe('WebSocket stream event translation', () => {

@@ -20,6 +20,7 @@ type TaskProgressEvent = {
   task_id: string
   tool_use_id?: string
   description: string
+  task_type?: string
   usage: {
     total_tokens: number
     tool_uses: number
@@ -43,6 +44,7 @@ type TaskNotificationSdkEvent = {
   subtype: 'task_notification'
   task_id: string
   tool_use_id?: string
+  task_type?: string
   status: 'completed' | 'failed' | 'stopped'
   output_file: string
   summary: string

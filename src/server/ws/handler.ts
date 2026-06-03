@@ -1809,6 +1809,9 @@ export function createCurrentTurnLocalCommandForwarder(
   let awaitingCurrentTurnLocalCommandOutput = false
 
   return (cliMsg: any) => {
+    if (command?.commandName === 'agent' && isSlashAgentTaskEvent(cliMsg)) {
+      return true
+    }
     if (command && isMatchingCurrentTurnLocalCommand(cliMsg, command)) {
       awaitingCurrentTurnLocalCommandOutput = true
       return true
@@ -1832,6 +1835,17 @@ export function createCurrentTurnLocalCommandForwarder(
     }
     return false
   }
+}
+
+function isSlashAgentTaskEvent(cliMsg: any): boolean {
+  if (cliMsg?.type !== 'system' || cliMsg?.task_type !== 'slash_agent') {
+    return false
+  }
+  return (
+    cliMsg.subtype === 'task_started' ||
+    cliMsg.subtype === 'task_progress' ||
+    cliMsg.subtype === 'task_notification'
+  )
 }
 
 function isMatchingCurrentTurnLocalCommand(

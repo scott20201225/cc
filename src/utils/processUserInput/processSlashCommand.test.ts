@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { setIsInteractive } from '../../bootstrap/state.js'
 import agentCommand from '../../commands/agent.js'
 import type { ToolUseContext } from '../../Tool.js'
 import type { AgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
 import { createAssistantMessage } from '../messages.js'
+import { drainSdkEvents } from '../sdkEventQueue.js'
 
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'test-key'
 
@@ -49,6 +51,8 @@ function makeContext(activeAgents: AgentDefinition[]): ToolUseContext {
 describe('/agent slash command processing', () => {
   beforeEach(() => {
     runAgentMock.mockClear()
+    drainSdkEvents()
+    setIsInteractive(true)
   })
 
   test('runs the selected agent with only the prompt body', async () => {
@@ -97,5 +101,39 @@ describe('/agent slash command processing', () => {
         message => message.message.content === 'Usage: /agent <agent> <prompt>',
       ),
     ).toBe(true)
+  })
+
+  test('emits foreground agent task events for desktop streaming', async () => {
+    setIsInteractive(false)
+
+    await processSlashCommand(
+      '/agent debugger fix failing tests',
+      [],
+      [],
+      [],
+      makeContext([makeAgent('general-purpose'), makeAgent('debugger')]),
+      () => {},
+    )
+
+    const events = drainSdkEvents()
+    expect(events.map(event => event.subtype)).toEqual([
+      'task_started',
+      'task_progress',
+      'task_notification',
+    ])
+    expect(events[0]).toMatchObject({
+      type: 'system',
+      subtype: 'task_started',
+      description: 'Agent debugger',
+      task_type: 'slash_agent',
+      prompt: 'fix failing tests',
+    })
+    expect(events[2]).toMatchObject({
+      type: 'system',
+      subtype: 'task_notification',
+      status: 'completed',
+      summary: 'Agent debugger completed',
+      result: 'debugger result',
+    })
   })
 })
