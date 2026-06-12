@@ -1387,6 +1387,41 @@ describe('Settings > About tab', () => {
     expect(screen.getByText('Added markdown support')).toBeInTheDocument()
   })
 
+  it('does not show a fake fallback app version when desktop version IPC fails', async () => {
+    window.desktopHost = {
+      ...browserHost,
+      kind: 'electron',
+      isDesktop: true,
+      capabilities: {
+        ...browserHost.capabilities,
+        updates: true,
+      },
+      app: {
+        getVersion: vi.fn().mockRejectedValue(new Error('version IPC failed')),
+      },
+    }
+    useUpdateStore.setState({
+      status: 'up-to-date',
+      availableVersion: null,
+      releaseNotes: null,
+      progressPercent: 0,
+      downloadedBytes: 0,
+      totalBytes: null,
+      error: null,
+      checkedAt: Date.now(),
+      shouldPrompt: false,
+      initialize: vi.fn().mockResolvedValue(undefined),
+      checkForUpdates: vi.fn().mockResolvedValue(null),
+      installUpdate: vi.fn().mockResolvedValue(undefined),
+      dismissPrompt: vi.fn(),
+    })
+
+    render(<Settings />)
+
+    expect(await screen.findByText('Unknown')).toBeInTheDocument()
+    expect(screen.queryByText('0.1.0')).not.toBeInTheDocument()
+  })
+
   it('shows downloaded bytes instead of a fake zero percent when total size is unknown', async () => {
     useUpdateStore.setState({
       status: 'downloading',

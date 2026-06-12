@@ -3652,7 +3652,7 @@ function AboutSettings() {
         if (!cancelled) setVersion(value)
       })
       .catch(() => {
-        if (!cancelled) setVersion('0.1.0')
+        if (!cancelled) setVersion('')
       })
 
     return () => {

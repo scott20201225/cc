@@ -50,6 +50,10 @@
       "target": "nsis",
       "icon": "src-tauri/icons/icon.ico"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
     "linux": {
       "target": [
         "AppImage",
