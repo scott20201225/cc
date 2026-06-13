@@ -129,6 +129,7 @@ import { sessionsApi } from '../api/sessions'
 import {
   mapHistoryMessagesToUiMessages,
   reconstructAgentNotifications,
+  stripGeneratedImageMetadataLines,
   type PerSessionState,
   useChatStore,
 } from './chatStore'
@@ -162,6 +163,28 @@ function makeSession(overrides: Partial<PerSessionState> = {}): PerSessionState 
     ...overrides,
   }
 }
+
+describe('stripGeneratedImageMetadataLines', () => {
+  it('removes simple, detailed, and resize metadata lines but keeps the prompt body', () => {
+    const text = [
+      'first line of the prompt',
+      'second line',
+      '[Image source: C:\\Users\\Relakkes\\.claude\\uploads\\sid\\a.png]',
+      '[Image: source: /Users/me/.claude/uploads/sid/b.png, original 1024x768, displayed at 512x384. Multiply coordinates by 2 to map to original image.]',
+      '[Image: original 800x600, displayed at 400x300. Multiply coordinates by 2 to map to original image.]',
+    ].join('\n')
+    expect(stripGeneratedImageMetadataLines(text)).toBe('first line of the prompt\nsecond line')
+  })
+
+  it('normalizes CRLF and leaves metadata-free text untouched', () => {
+    expect(stripGeneratedImageMetadataLines('a\r\nb\r\n')).toBe('a\nb')
+    expect(stripGeneratedImageMetadataLines('just a normal prompt')).toBe('just a normal prompt')
+  })
+
+  it('returns empty string when the text is only metadata', () => {
+    expect(stripGeneratedImageMetadataLines('[Image source: /tmp/x.png]')).toBe('')
+  })
+})
 
 describe('chatStore history mapping', () => {
   beforeEach(() => {
@@ -3520,6 +3543,64 @@ describe('chatStore history mapping', () => {
       { type: 'user_text', content: prompt },
       { type: 'thinking', content: 'I need to plan the implementation.' },
     ])
+  })
+
+  it('does not leak an image-bearing prompt when the replay appends [Image source] metadata (Windows path)', () => {
+    // The optimistic message (e.g. a visual-selection annotation card) stores the
+    // prompt body in modelContent with a hidden display. The CLI replay carries
+    // the server-appended `[Image source: …]` line on the same text. Dedupe must
+    // still match — otherwise the raw prompt + absolute upload path leak in as a
+    // second grey bubble (the reported Windows regression).
+    const prompt = '请根据截图中编号 1 的蓝色标注修改本地前端。\n目标元素：<button>'
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          messages: [
+            {
+              id: 'live-user',
+              type: 'user_text',
+              content: '',
+              modelContent: prompt,
+              timestamp: 1,
+            },
+          ],
+          chatState: 'thinking',
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'user_message_replay',
+      content: `${prompt}\n[Image source: C:\\Users\\Relakkes\\.claude\\uploads\\sid\\82017405-_button_.png]`,
+    })
+
+    const userMessages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+      .filter((message) => message.type === 'user_text')
+    expect(userMessages).toHaveLength(1)
+    expect(userMessages?.[0]).toMatchObject({ content: '', modelContent: prompt })
+  })
+
+  it('dedupes an image-bearing prompt when the replay appends detailed (macOS) image metadata', () => {
+    const prompt = 'describe this screenshot for me'
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          messages: [
+            { id: 'live-user', type: 'user_text', content: prompt, timestamp: 1 },
+          ],
+          chatState: 'thinking',
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'user_message_replay',
+      content: `${prompt}\n[Image: source: /Users/me/.claude/uploads/sid/a.png, original 1024x768, displayed at 512x384. Multiply coordinates by 2 to map to original image.]`,
+    })
+
+    const userMessages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+      .filter((message) => message.type === 'user_text')
+    expect(userMessages).toHaveLength(1)
   })
 
   it('flushes pending text before appending an error message', () => {

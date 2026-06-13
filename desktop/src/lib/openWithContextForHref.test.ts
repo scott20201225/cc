@@ -77,12 +77,31 @@ describe('openWithContextForWorkspaceFile', () => {
     expect(result).toEqual({ kind: 'file', absolutePath: '/w/proj/README.md', relPath: 'README.md', previewable: true })
   })
 
-  it('frontend project index.html rel path → no inAppBrowserUrl because it needs a dev server', () => {
-    const result = openWithContextForWorkspaceFile('todo-app/index.html', '/w/proj/todo-app/index.html', { sessionId: SESSION, serverBaseUrl: BASE })
+  it('hand-authored single-page index.html (no manifest in change-set) → static preview offered', () => {
+    const result = openWithContextForWorkspaceFile('todo-app/index.html', '/w/proj/todo-app/index.html', {
+      sessionId: SESSION,
+      serverBaseUrl: BASE,
+      siblingFiles: ['todo-app/index.html', 'todo-app/style.css', 'todo-app/app.js'],
+    })
     expect(result).toEqual({
       kind: 'file',
       absolutePath: '/w/proj/todo-app/index.html',
       relPath: 'todo-app/index.html',
+      previewable: true,
+      inAppBrowserUrl: previewFsUrl(BASE, SESSION, 'todo-app/index.html'),
+    })
+  })
+
+  it('framework-template index.html (manifest in change-set) → no inAppBrowserUrl (needs dev server)', () => {
+    const result = openWithContextForWorkspaceFile('index.html', '/w/proj/index.html', {
+      sessionId: SESSION,
+      serverBaseUrl: BASE,
+      siblingFiles: ['index.html', 'package.json', 'vite.config.ts', 'src/main.tsx'],
+    })
+    expect(result).toEqual({
+      kind: 'file',
+      absolutePath: '/w/proj/index.html',
+      relPath: 'index.html',
       previewable: true,
     })
   })
@@ -124,6 +143,33 @@ describe('openWithContextForWorkspaceFile', () => {
     if (result.kind === 'file') {
       expect(result.inAppBrowserUrl).toBeUndefined()
       expect(result.previewable).toBe(true)
+    }
+  })
+
+  it('outside-workspace html (absolute displayPath) → inAppBrowserUrl via localFileUrl, not preview-fs', () => {
+    // A changed file that could not be relativized arrives with an absolute relPath;
+    // it lives outside the workdir, so it must be served by the /local-file route.
+    const result = openWithContextForWorkspaceFile('D:/workspace/demo/todo.html', 'D:\\workspace\\demo\\todo.html', {
+      sessionId: SESSION,
+      serverBaseUrl: BASE,
+    })
+    expect(result).toEqual({
+      kind: 'file',
+      absolutePath: 'D:\\workspace\\demo\\todo.html',
+      relPath: 'D:/workspace/demo/todo.html',
+      previewable: true,
+      inAppBrowserUrl: localFileUrl(BASE, 'D:\\workspace\\demo\\todo.html'),
+    })
+  })
+
+  it('outside-workspace POSIX html absolute path → inAppBrowserUrl via localFileUrl', () => {
+    const result = openWithContextForWorkspaceFile('/elsewhere/site/todo.html', '/elsewhere/site/todo.html', {
+      sessionId: SESSION,
+      serverBaseUrl: BASE,
+    })
+    expect(result.kind).toBe('file')
+    if (result.kind === 'file') {
+      expect(result.inAppBrowserUrl).toBe(localFileUrl(BASE, '/elsewhere/site/todo.html'))
     }
   })
 })

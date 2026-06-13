@@ -2188,6 +2188,24 @@ function isGeneratedImageMetadataText(text: string): boolean {
   return Boolean(extractImageMetadataSourcePath(text)) || IMAGE_RESIZE_METADATA_RE.test(text.trim())
 }
 
+/**
+ * Strip the generated image-metadata lines (`[Image source: …]`, resize notes)
+ * that the server appends to a user turn's text. The optimistic message never
+ * carried them, so live-replay dedupe must normalize them away first — otherwise
+ * `findCurrentTurnUserMessageIndex` never matches and the raw prompt leaks in as
+ * a duplicate bubble. This was most visible on Windows, where the appended
+ * absolute upload path (`[Image source: C:\Users\…\uploads\…png]`) made the
+ * mismatch obvious, but it affects any message that carries an image.
+ */
+export function stripGeneratedImageMetadataLines(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .filter((line) => !isGeneratedImageMetadataText(line))
+    .join('\n')
+    .trim()
+}
+
 function parseVisualSelectionHistoryPrompt(text: string): VisualSelectionHistoryDisplay | null {
   const lines = text.replace(/\r\n?/g, '\n').split('\n')
   if (lines[0]?.trim() !== VISUAL_SELECTION_PROMPT_HEADER) return null
@@ -2745,16 +2763,21 @@ function extractLeadingFileReferences(text: string): {
   }
 }
 
-function appendReplayedUserMessage(
+export function appendReplayedUserMessage(
   messages: UIMessage[],
   content: string,
   timestamp: number,
 ): UIMessage[] {
-  const parsed = extractLeadingFileReferences(content)
-  const displayContent = parsed.content.trim() || content.trim()
+  // The replayed text carries server-appended image-metadata lines that the
+  // optimistic message never had. Normalize them away (same as the history
+  // mapping) so the dedupe below can match the already-rendered message instead
+  // of appending the raw prompt — paths and all — as a duplicate bubble.
+  const sanitized = stripGeneratedImageMetadataLines(content) || content.trim()
+  const parsed = extractLeadingFileReferences(sanitized)
+  const displayContent = parsed.content.trim() || sanitized
   if (!displayContent) return messages
 
-  const modelContent = parsed.modelContent ?? content.trim()
+  const modelContent = parsed.modelContent ?? sanitized
   const currentTurnUserIndex = findCurrentTurnUserMessageIndex(messages, modelContent)
   if (currentTurnUserIndex >= 0) {
     const optimisticMessage = messages[currentTurnUserIndex]

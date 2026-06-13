@@ -770,6 +770,40 @@ function buildTurnCardInsertionMap(
   return cardsByRenderIndex
 }
 
+/**
+ * Map each render item to the REAL changed files of the turn it belongs to, so an
+ * assistant message can anchor its output chips on files that were actually
+ * written this turn instead of guessing paths from the prose. Items are attributed
+ * to the most recent preceding non-pending user message (the turn boundary).
+ */
+function buildChangedFilesByRenderIndex(
+  renderItems: RenderItem[],
+  turnChangeCards: TurnChangeCardModel[],
+): Map<number, string[]> {
+  const filesByTurnId = new Map<string, string[]>()
+  for (const card of turnChangeCards) {
+    if (card.checkpoint.code.filesChanged.length > 0) {
+      filesByTurnId.set(card.target.messageId, card.checkpoint.code.filesChanged)
+    }
+  }
+  if (filesByTurnId.size === 0) return new Map()
+
+  const filesByRenderIndex = new Map<number, string[]>()
+  let activeTurnId: string | null = null
+  renderItems.forEach((item, index) => {
+    if (item.kind === 'message' && item.message.type === 'user_text' && !item.message.pending) {
+      activeTurnId = item.message.id
+      return
+    }
+    if (activeTurnId) {
+      const files = filesByTurnId.get(activeTurnId)
+      if (files) filesByRenderIndex.set(index, files)
+    }
+  })
+
+  return filesByRenderIndex
+}
+
 function getApiErrorMessage(error: unknown) {
   return error instanceof ApiError
     ? typeof error.body === 'object' && error.body && 'message' in error.body
@@ -1645,6 +1679,10 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     () => buildTurnCardInsertionMap(renderItems, turnChangeCards),
     [renderItems, turnChangeCards],
   )
+  const changedFilesByRenderIndex = useMemo(
+    () => buildChangedFilesByRenderIndex(renderItems, turnChangeCards),
+    [renderItems, turnChangeCards],
+  )
   const renderItemKeys = useMemo(
     () => renderItems.map(getRenderItemKey),
     [renderItems],
@@ -1903,6 +1941,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
                 : null
             }
             branchAction={branchActionByMessageId.get(item.message.id)}
+            turnChangedFiles={changedFilesByRenderIndex.get(index)}
           />
         )}
 
@@ -2033,6 +2072,7 @@ export const MessageBlock = memo(function MessageBlock({
   agentTaskNotifications,
   toolResult,
   branchAction,
+  turnChangedFiles,
 }: {
   sessionId?: string | null
   message: UIMessage
@@ -2044,6 +2084,7 @@ export const MessageBlock = memo(function MessageBlock({
     loading?: boolean
     onBranch: () => void
   }
+  turnChangedFiles?: string[]
 }) {
   const t = useTranslation()
 
@@ -2077,6 +2118,7 @@ export const MessageBlock = memo(function MessageBlock({
             branchAction={branchAction}
             sessionId={sessionId ?? undefined}
             timestamp={message.timestamp}
+            turnChangedFiles={turnChangedFiles}
           />
         </SelectableChatMessage>
       )
