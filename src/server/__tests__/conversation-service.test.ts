@@ -182,6 +182,42 @@ describe('ConversationService', () => {
     await expect(fs.stat(path.dirname(env.CLAUDE_CODE_DIAGNOSTICS_FILE))).resolves.toBeTruthy()
   })
 
+  test('buildChildEnv injects stream watchdog + overall max-duration so a trickling provider stream cannot hang the desktop forever (#766)', async () => {
+    const prev = process.env.CLAUDE_STREAM_MAX_DURATION_MS
+    delete process.env.CLAUDE_STREAM_MAX_DURATION_MS
+    try {
+      const service = new ConversationService() as any
+      const env = (await service.buildChildEnv('/tmp')) as Record<string, string>
+
+      // Idle watchdog frees a fully-silent stream after 240s...
+      expect(env.CLAUDE_ENABLE_STREAM_WATCHDOG).toBe('1')
+      expect(env.CLAUDE_STREAM_IDLE_TIMEOUT_MS).toBe('240000')
+      // ...but the idle timer is reset by EVERY SSE event, so an upstream that
+      // trickles content deltas (a large tool_use input_json_delta) just under
+      // 240s apart keeps it alive forever. The overall-duration cap is NOT reset
+      // by chunks and is what actually frees that case (#766).
+      expect(env.CLAUDE_STREAM_MAX_DURATION_MS).toBe('600000')
+      // Non-streaming fallback stays off — its retry loop also hangs the UI (#766).
+      expect(env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK).toBe('1')
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_STREAM_MAX_DURATION_MS
+      else process.env.CLAUDE_STREAM_MAX_DURATION_MS = prev
+    }
+  })
+
+  test('buildChildEnv lets caller env override the stream max-duration cap (#766)', async () => {
+    const prev = process.env.CLAUDE_STREAM_MAX_DURATION_MS
+    process.env.CLAUDE_STREAM_MAX_DURATION_MS = '120000'
+    try {
+      const service = new ConversationService() as any
+      const env = (await service.buildChildEnv('/tmp')) as Record<string, string>
+      expect(env.CLAUDE_STREAM_MAX_DURATION_MS).toBe('120000')
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_STREAM_MAX_DURATION_MS
+      else process.env.CLAUDE_STREAM_MAX_DURATION_MS = prev
+    }
+  })
+
   test('builds hidden CLI spawn options for desktop session subprocesses', () => {
     const env = { CLAUDECODE: '1' }
 

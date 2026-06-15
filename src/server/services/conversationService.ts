@@ -1114,6 +1114,13 @@ export class ConversationService {
       // CLI's 90s idle default kills healthy streams (#766). 240s still frees
       // a truly dead connection without shooting slow ones.
       CLAUDE_STREAM_IDLE_TIMEOUT_MS: cleanEnv.CLAUDE_STREAM_IDLE_TIMEOUT_MS || '240000',
+      // Overall wall-clock cap for one streaming response, NOT reset by chunks.
+      // The 240s idle timer above is reset by every SSE event, so an upstream
+      // that trickles content deltas (e.g. a huge tool_use input_json_delta)
+      // just under 240s apart keeps it alive forever and the request hangs with
+      // no completion (#766: "卡住" with slowly growing tokens). This independent
+      // cap frees such a stream after a fixed duration regardless of trickle.
+      CLAUDE_STREAM_MAX_DURATION_MS: cleanEnv.CLAUDE_STREAM_MAX_DURATION_MS || '600000',
       // When a stream does get aborted, retry as streaming instead of falling
       // back to non-streaming: a non-streaming request must wait for the FULL
       // generation before the first response byte, so slow providers can never
